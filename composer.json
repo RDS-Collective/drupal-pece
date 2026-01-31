@@ -177,10 +177,10 @@
         "drupal/view_mode_page": "^4.0",
         "drupal/views_infinite_scroll": "^2.0",
         "drupal/workflow": "^1.4",
-        "drush/drush": "*",
+        "drush/drush": "^13",
         "enshrined/svg-sanitize": "~0.22",
         "mglaman/composer-drupal-lenient": "^1.0",
-        "mozilla/pdf.js": "*",
+        "mozilla/pdf.js": "^4.6",
         "npm-asset/blazy": "^1.8",
         "npm-asset/splidejs--splide": "^4.1",
         "oomphinc/composer-installers-extender": "~1.0 || ~2.0"
