@@ -115,6 +115,7 @@ jobs:
           mkdir -p web/sites/default/files
           chmod 777 web/sites/default/files
           cp web/sites/default/default.settings.php web/sites/default/settings.php
+          cp web/sites/default/default.services.yml web/sites/default/services.yml
           echo "\$databases['default']['default'] = [
             'database' => 'drupal',
             'username' => 'drupal',
@@ -129,6 +130,16 @@ jobs:
           echo "\$settings['redis.connection']['interface'] = 'PhpRedis';" >> web/sites/default/settings.php
           echo "\$settings['redis.connection']['host'] = '127.0.0.1';" >> web/sites/default/settings.php
           echo "\$settings['cache']['default'] = 'cache.backend.redis';" >> web/sites/default/settings.php
+          echo "\$settings['container_yamls'][] = DRUPAL_ROOT . '/sites/default/services.yml';" >> web/sites/default/settings.php
+          # Add Redis cache backend service definition
+          cat >> web/sites/default/services.yml << 'EOF'
+services:
+  cache.backend.redis:
+    class: Drupal\redis\Cache\CacheBackendFactory
+    arguments: ['@redis.factory']
+  redis.factory:
+    class: Drupal\redis\ClientFactory
+EOF
           chmod 666 web/sites/default/settings.php
 
       - name: Install Drupal
@@ -209,6 +220,7 @@ jobs:
           mkdir -p web/sites/default/files
           chmod 777 web/sites/default/files
           cp web/sites/default/default.settings.php web/sites/default/settings.php
+          cp web/sites/default/default.services.yml web/sites/default/services.yml
           echo "\$databases['default']['default'] = [
             'database' => 'drupal',
             'username' => 'drupal',
@@ -220,6 +232,16 @@ jobs:
             'driver' => 'mysql',
           ];" >> web/sites/default/settings.php
           echo "\$settings['hash_salt'] = 'test-salt';" >> web/sites/default/settings.php
+          echo "\$settings['container_yamls'][] = DRUPAL_ROOT . '/sites/default/services.yml';" >> web/sites/default/settings.php
+          # Add Redis cache backend service definition (optional for Behat)
+          cat >> web/sites/default/services.yml << 'EOF'
+services:
+  cache.backend.redis:
+    class: Drupal\redis\Cache\CacheBackendFactory
+    arguments: ['@redis.factory']
+  redis.factory:
+    class: Drupal\redis\ClientFactory
+EOF
           chmod 666 web/sites/default/settings.php
 
       - name: Install Drupal
