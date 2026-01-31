@@ -291,7 +291,13 @@ jobs:
               echo "Building assets for $(basename "$theme_dir")"
               cd "$theme_dir"
               npm ci --silent
-              npm run build 2>/dev/null || npm run build-bulma 2>/dev/null || echo "No build script found"
+              if npm run build 2>/dev/null; then
+                echo "Build completed successfully"
+              elif npm run build-bulma 2>/dev/null; then
+                echo "Build-bulma completed successfully"
+              else
+                echo "No build script found - skipping"
+              fi
               cd - > /dev/null
             fi
           done
