@@ -162,9 +162,15 @@ jobs:
       - name: Run PHPUnit tests
         run: |
           if [ -d "web/profiles/pece/modules" ]; then
+            # Create required test directories
+            mkdir -p web/sites/simpletest/browser_output
+            chmod 777 web/sites/simpletest/browser_output
+            
+            # Run PHPUnit with proper configuration
             ./vendor/bin/phpunit --configuration web/core/phpunit.xml.dist \
               --testsuite unit \
               --coverage-clover coverage.xml \
+              --bootstrap web/core/tests/bootstrap.php \
               web/profiles/pece/modules/ || true
           fi
 
