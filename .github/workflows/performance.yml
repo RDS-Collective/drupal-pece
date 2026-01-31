@@ -1,0 +1,147 @@
+name: Performance Tests
+
+on:
+  schedule:
+    - cron: '0 4 * * 0' # Weekly on Sunday at 4 AM UTC
+  workflow_dispatch:
+  pull_request:
+    branches: [ main, 2.x ]
+    paths:
+      - 'web/themes/**'
+      - 'web/profiles/pece/**'
+      - 'web/sites/**'
+
+jobs:
+  lighthouse:
+    name: Lighthouse Performance Audit
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mariadb:11.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: drupal
+          MYSQL_USER: drupal
+          MYSQL_PASSWORD: drupal
+        ports:
+          - 3306:3306
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, mysql
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Setup Drupal
+        run: |
+          cp web/sites/default/default.settings.php web/sites/default/settings.php
+          echo "\$databases['default']['default'] = [
+            'database' => 'drupal',
+            'username' => 'drupal',
+            'password' => 'drupal',
+            'prefix' => '',
+            'host' => '127.0.0.1',
+            'port' => '3306',
+            'namespace' => 'Drupal\\Core\\Database\\Driver\\mysql',
+            'driver' => 'mysql',
+          ];" >> web/sites/default/settings.php
+          chmod 666 web/sites/default/settings.php
+
+      - name: Install Drupal
+        run: |
+          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes
+          ./vendor/bin/drush content:import essential ../content/essential/ || true
+
+      - name: Start web server
+        run: |
+          cd web && php -S 127.0.0.1:8080 .ht.router.php &
+          sleep 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Lighthouse CI
+        run: npm install -g @lhci/cli@0.12.x
+
+      - name: Run Lighthouse CI
+        run: |
+          lhci autorun --upload.target=temporary-public-storage
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+
+  load-test:
+    name: Load Testing
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    services:
+      mysql:
+        image: mariadb:11.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: drupal
+          MYSQL_USER: drupal
+          MYSQL_PASSWORD: drupal
+        ports:
+          - 3306:3306
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, mysql
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Setup Drupal
+        run: |
+          cp web/sites/default/default.settings.php web/sites/default/settings.php
+          echo "\$databases['default']['default'] = [
+            'database' => 'drupal',
+            'username' => 'drupal',
+            'password' => 'drupal',
+            'prefix' => '',
+            'host' => '127.0.0.1',
+            'port' => '3306',
+            'namespace' => 'Drupal\\Core\\Database\\Driver\\mysql',
+            'driver' => 'mysql',
+          ];" >> web/sites/default/settings.php
+          chmod 666 web/sites/default/settings.php
+
+      - name: Install Drupal
+        run: |
+          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes
+          ./vendor/bin/drush content:import demo ../content/demo/ || true
+
+      - name: Start web server
+        run: |
+          cd web && php -S 127.0.0.1:8080 .ht.router.php &
+          sleep 10
+
+      - name: Install Apache Bench
+        run: sudo apt-get update && sudo apt-get install -y apache2-utils
+
+      - name: Run load test
+        run: |
+          echo "Running load test on homepage..."
+          ab -n 100 -c 10 http://127.0.0.1:8080/ > load-test-results.txt
+          cat load-test-results.txt
+
+      - name: Upload load test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results
+          path: load-test-results.txt

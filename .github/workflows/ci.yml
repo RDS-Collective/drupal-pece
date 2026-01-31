@@ -1,0 +1,249 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, 2.x, develop ]
+  pull_request:
+    branches: [ main, 2.x ]
+
+env:
+  COMPOSER_MEMORY_LIMIT: -1
+
+jobs:
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-suggest --no-interaction
+
+      - name: Check Drupal coding standards
+        run: |
+          ./vendor/bin/phpcs --standard=Drupal --extensions=php,module,inc,install,test,profile,theme,css,info,txt,md,yml web/profiles/pece/modules/
+          ./vendor/bin/phpcs --standard=DrupalPractice --extensions=php,module,inc,install,test,profile,theme web/profiles/pece/modules/
+
+      - name: Run Rector (Drupal upgrade checks)
+        run: ./vendor/bin/rector process --dry-run --no-progress-bar
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Security audit
+        run: composer audit
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mariadb:11.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: drupal
+          MYSQL_USER: drupal
+          MYSQL_PASSWORD: drupal
+        ports:
+          - 3306:3306
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=10s --health-timeout=5s --health-retries=3
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, mysql, redis
+          coverage: xdebug
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Setup Drupal
+        run: |
+          cp web/sites/default/default.settings.php web/sites/default/settings.php
+          echo "\$databases['default']['default'] = [
+            'database' => 'drupal',
+            'username' => 'drupal',
+            'password' => 'drupal',
+            'prefix' => '',
+            'host' => '127.0.0.1',
+            'port' => '3306',
+            'namespace' => 'Drupal\\Core\\Database\\Driver\\mysql',
+            'driver' => 'mysql',
+          ];" >> web/sites/default/settings.php
+          echo "\$settings['redis.connection']['interface'] = 'PhpRedis';" >> web/sites/default/settings.php
+          echo "\$settings['redis.connection']['host'] = '127.0.0.1';" >> web/sites/default/settings.php
+          echo "\$settings['cache']['default'] = 'cache.backend.redis';" >> web/sites/default/settings.php
+          chmod 666 web/sites/default/settings.php
+
+      - name: Install Drupal
+        run: |
+          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes
+          ./vendor/bin/drush user:create admin --mail="admin@example.com" --password="admin"
+          ./vendor/bin/drush user:role:add administrator admin
+
+      - name: Import content
+        run: |
+          ./vendor/bin/drush content:import essential ../content/essential/ || true
+          ./vendor/bin/drush content:import demo ../content/demo/ || true
+
+      - name: Run PHPUnit tests
+        run: |
+          ./vendor/bin/phpunit --configuration web/core/phpunit.xml.dist \
+            --testsuite unit \
+            --coverage-clover coverage.xml \
+            web/profiles/pece/modules/
+
+      - name: Run Codeception tests
+        run: |
+          ./vendor/bin/codecept run unit
+          ./vendor/bin/codecept run functional
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+
+  behat:
+    name: Behat Tests
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mariadb:11.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: drupal
+          MYSQL_USER: drupal
+          MYSQL_PASSWORD: drupal
+        ports:
+          - 3306:3306
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=10s --health-timeout=5s --health-retries=3
+
+      selenium:
+        image: selenium/standalone-chrome:latest
+        ports:
+          - 4444:4444
+        options: --shm-size=2g
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, mysql
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Setup Drupal
+        run: |
+          cp web/sites/default/default.settings.php web/sites/default/settings.php
+          echo "\$databases['default']['default'] = [
+            'database' => 'drupal',
+            'username' => 'drupal',
+            'password' => 'drupal',
+            'prefix' => '',
+            'host' => '127.0.0.1',
+            'port' => '3306',
+            'namespace' => 'Drupal\\Core\\Database\\Driver\\mysql',
+            'driver' => 'mysql',
+          ];" >> web/sites/default/settings.php
+          chmod 666 web/sites/default/settings.php
+
+      - name: Install Drupal
+        run: |
+          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes
+          ./vendor/bin/drush user:create admin --mail="admin@example.com" --password="admin"
+          ./vendor/bin/drush user:role:add administrator admin
+
+      - name: Start web server
+        run: |
+          cd web && php -S 127.0.0.1:8080 .ht.router.php &
+          sleep 5
+
+      - name: Update Behat configuration
+        run: |
+          sed -i 's|http://drupal-pece.ddev.site/|http://127.0.0.1:8080/|g' behat.yml
+          sed -i 's|http://selenium-chrome:4444/wd/hub|http://127.0.0.1:4444/wd/hub|g' behat.yml
+
+      - name: Run Behat tests
+        run: ./vendor/bin/behat --strict --no-interaction
+
+  build:
+    name: Build Assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'web/themes/custom/*/package-lock.json'
+
+      - name: Install and build theme assets
+        run: |
+          for theme_dir in web/themes/custom/*/; do
+            if [ -f "$theme_dir/package.json" ]; then
+              echo "Building assets for $(basename "$theme_dir")"
+              cd "$theme_dir"
+              npm ci
+              npm run build || npm run build-bulma || true
+              cd - > /dev/null
+            fi
+          done
+
+      - name: Check for uncommitted changes
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Uncommitted changes found in built assets:"
+            git status --porcelain
+            exit 1
+          fi
