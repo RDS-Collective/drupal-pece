@@ -1,0 +1,190 @@
+name: Security Tests
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # Daily at 6 AM UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'composer.json'
+      - 'composer.lock'
+
+jobs:
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv
+
+      - name: Install dependencies
+        run: composer install --no-dev --prefer-dist --no-interaction
+
+      - name: Run Composer security audit
+        run: |
+          composer audit --format=json > security-audit.json
+          composer audit --format=table
+
+      - name: Check for Drupal core security updates
+        run: |
+          CURRENT_VERSION=$(composer show drupal/core --format=json | jq -r '.versions[0]')
+          echo "Current Drupal core version: $CURRENT_VERSION"
+          
+          # Check Drupal security advisories API
+          curl -s "https://www.drupal.org/api-d7/node.json?type=sa-core" | \
+          jq '.list[] | select(.field_security_advisory_psa.und[0].value == "0") | {title: .title, created: .created, nid: .nid}' | \
+          head -5
+
+      - name: Upload security audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-${{ github.sha }}
+          path: security-audit.json
+
+      - name: Fail on high/critical vulnerabilities
+        run: |
+          HIGH_CRITICAL=$(jq '[.advisories[] | select(.severity == "high" or .severity == "critical")] | length' security-audit.json)
+          if [ "$HIGH_CRITICAL" -gt 0 ]; then
+            echo "Found $HIGH_CRITICAL high/critical vulnerabilities"
+            exit 1
+          fi
+
+  dependency-check:
+    name: Dependency Vulnerability Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+
+      - name: Install dependencies
+        run: composer install --no-dev --prefer-dist --no-interaction
+
+      - name: Check outdated packages
+        run: |
+          composer outdated --direct --strict --format=json > outdated.json || true
+          composer outdated --direct
+
+      - name: Check for security-only updates
+        run: |
+          # Check if any outdated packages have security fixes
+          if [ -f "outdated.json" ]; then
+            jq '.installed[] | select(.security-advisories > 0) | {name: .name, version: .version, latest: .latest, advisories: .security-advisories}' outdated.json || true
+          fi
+
+  access-control-test:
+    name: Access Control Security Test
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mariadb:11.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: drupal
+          MYSQL_USER: drupal
+          MYSQL_PASSWORD: drupal
+        ports:
+          - 3306:3306
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, mysql
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Setup Drupal
+        run: |
+          mkdir -p web/sites/default/files
+          chmod 777 web/sites/default/files
+          cp web/sites/default/default.settings.php web/sites/default/settings.php
+          echo "\$databases['default']['default'] = [
+            'database' => 'drupal',
+            'username' => 'drupal',
+            'password' => 'drupal',
+            'prefix' => '',
+            'host' => '127.0.0.1',
+            'port' => '3306',
+            'namespace' => 'Drupal\\Core\\Database\\Driver\\mysql',
+            'driver' => 'mysql',
+          ];" >> web/sites/default/settings.php
+          echo "\$settings['hash_salt'] = 'test-salt';" >> web/sites/default/settings.php
+          chmod 666 web/sites/default/settings.php
+
+      - name: Install Drupal
+        run: |
+          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes --account-pass=admin || \
+          ./vendor/bin/drush site:install pece --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes --account-pass=admin
+
+      - name: Start web server
+        run: |
+          cd web && php -S 127.0.0.1:8080 .ht.router.php &
+          sleep 10
+
+      - name: Test anonymous access restrictions
+        run: |
+          # Test admin paths are protected
+          curl -f -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/admin | grep -q "403\|302" || exit 1
+          curl -f -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/user/1 | grep -q "403\|302" || exit 1
+          
+          # Test public paths are accessible
+          curl -f -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/ | grep -q "200" || exit 1
+
+      - name: Test file upload restrictions
+        run: |
+          # Test that PHP files can't be uploaded to files directory
+          echo "<?php phpinfo(); ?>" > test.php
+          curl -X POST -F "files[]=@test.php" http://127.0.0.1:8080/sites/default/files/ || true
+          # Should not be executable
+          curl -f http://127.0.0.1:8080/sites/default/files/test.php 2>&1 | grep -q "404\|403" || exit 1
+
+  create-security-issue:
+    name: Create Security Issue
+    runs-on: ubuntu-latest
+    needs: [security-audit, dependency-check]
+    if: failure()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create security issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Security Alert: Vulnerabilities detected - ${new Date().toISOString().split('T')[0]}`;
+            const body = `
+            ## Security Vulnerabilities Detected
+            
+            Automated security tests have detected vulnerabilities in dependencies.
+            
+            **Action Required:**
+            1. Review security audit results in the failed workflow
+            2. Update vulnerable dependencies
+            3. Test the updates thoroughly
+            4. Deploy security fixes as soon as possible
+            
+            **Workflow:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            **Branch:** ${{ github.ref_name }}
+            **Commit:** ${{ github.sha }}
+            `;
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'high-priority', 'automated']
+            });
