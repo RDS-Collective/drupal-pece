@@ -263,10 +263,8 @@ jobs:
           if [ -f "behat.yml" ]; then
             sed -i 's|http://drupal-pece.ddev.site/|http://127.0.0.1:8080/|g' behat.yml
             sed -i 's|http://selenium-chrome:4444/wd/hub|http://127.0.0.1:4444/wd/hub|g' behat.yml
-            # Add Drupal root configuration
-            echo "    Drupal\\DrupalExtension:" >> behat.yml
-            echo "      drupal:" >> behat.yml
-            echo "        drupal_root: web" >> behat.yml
+            # Add drupal_root to existing DrupalExtension
+            sed -i '/Drupal\\DrupalExtension:/a\      drupal:\n        drupal_root: web' behat.yml
           fi
 
       - name: Run Behat tests
