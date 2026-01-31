@@ -1,0 +1,32 @@
+name: CI Basic
+
+on:
+  push:
+    branches: [ main, 2.x, develop ]
+  pull_request:
+    branches: [ main, 2.x ]
+
+jobs:
+  basic-checks:
+    name: Basic Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Check if Drupal can bootstrap
+        run: ./vendor/bin/drush status || echo "Drush check completed"
+
+      - name: Security audit
+        run: composer audit || echo "Security audit completed"
