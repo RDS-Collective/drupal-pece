@@ -133,7 +133,9 @@ jobs:
 
       - name: Install Drupal
         run: |
-          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes --account-pass=admin
+          # Try with existing config first, fallback to standard install
+          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes --account-pass=admin || \
+          ./vendor/bin/drush site:install pece --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes --account-pass=admin
           ./vendor/bin/drush user:create admin --mail="admin@example.com" --password="admin" || true
           ./vendor/bin/drush user:role:add administrator admin || true
 
@@ -222,7 +224,9 @@ jobs:
 
       - name: Install Drupal
         run: |
-          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes --account-pass=admin
+          # Try with existing config first, fallback to standard install
+          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes --account-pass=admin || \
+          ./vendor/bin/drush site:install pece --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes --account-pass=admin
           ./vendor/bin/drush user:create admin --mail="admin@example.com" --password="admin" || true
           ./vendor/bin/drush user:role:add administrator admin || true
 

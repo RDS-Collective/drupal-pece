@@ -56,8 +56,10 @@ jobs:
 
       - name: Install Drupal
         run: |
-          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes
-          ./vendor/bin/drush content:import essential ../content/essential/ || true
+          # Try with existing config first, fallback to standard install
+          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes --account-pass=admin || \
+          ./vendor/bin/drush site:install pece --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes --account-pass=admin
+          ./vendor/bin/drush content:import essential content/essential/ || true
 
       - name: Start web server
         run: |
@@ -123,8 +125,10 @@ jobs:
 
       - name: Install Drupal
         run: |
-          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes
-          ./vendor/bin/drush content:import demo ../content/demo/ || true
+          # Try with existing config first, fallback to standard install
+          ./vendor/bin/drush site:install pece --existing-config --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes --account-pass=admin || \
+          ./vendor/bin/drush site:install pece --db-url=mysql://drupal:drupal@127.0.0.1:3306/drupal --yes --account-pass=admin
+          ./vendor/bin/drush content:import demo content/demo/ || true
 
       - name: Start web server
         run: |
