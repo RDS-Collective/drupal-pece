@@ -162,16 +162,22 @@ jobs:
       - name: Run PHPUnit tests
         run: |
           if [ -d "web/profiles/pece/modules" ]; then
-            # Create required test directories
+            # Create required test directories with full path
             mkdir -p web/sites/simpletest/browser_output
-            chmod 777 web/sites/simpletest/browser_output
-            
+            chmod -R 777 web/sites/simpletest
+
+            # Set required environment variables
+            export SIMPLETEST_BASE_URL=http://127.0.0.1:8080
+            export SIMPLETEST_DB=mysql://drupal:drupal@127.0.0.1:3306/drupal
+
+            # Install missing PHPUnit compatibility package
+            composer require --dev drupal/core-dev --no-interaction
+
             # Run PHPUnit with proper configuration
             ./vendor/bin/phpunit --configuration web/core/phpunit.xml.dist \
               --testsuite unit \
               --coverage-clover coverage.xml \
-              --bootstrap web/core/tests/bootstrap.php \
-              web/profiles/pece/modules/ || true
+              web/profiles/pece/modules/
           fi
 
       - name: Run Codeception tests
