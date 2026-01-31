@@ -133,13 +133,13 @@ jobs:
           echo "\$settings['container_yamls'][] = DRUPAL_ROOT . '/sites/default/services.yml';" >> web/sites/default/settings.php
           # Add Redis cache backend service definition
           cat >> web/sites/default/services.yml << 'EOF'
-services:
-  cache.backend.redis:
-    class: Drupal\redis\Cache\CacheBackendFactory
-    arguments: ['@redis.factory']
-  redis.factory:
-    class: Drupal\redis\ClientFactory
-EOF
+          services:
+            cache.backend.redis:
+              class: Drupal\redis\Cache\CacheBackendFactory
+              arguments: ['@redis.factory']
+            redis.factory:
+              class: Drupal\redis\ClientFactory
+          EOF
           chmod 666 web/sites/default/settings.php
 
       - name: Install Drupal
@@ -235,13 +235,13 @@ EOF
           echo "\$settings['container_yamls'][] = DRUPAL_ROOT . '/sites/default/services.yml';" >> web/sites/default/settings.php
           # Add Redis cache backend service definition (optional for Behat)
           cat >> web/sites/default/services.yml << 'EOF'
-services:
-  cache.backend.redis:
-    class: Drupal\redis\Cache\CacheBackendFactory
-    arguments: ['@redis.factory']
-  redis.factory:
-    class: Drupal\redis\ClientFactory
-EOF
+          services:
+            cache.backend.redis:
+              class: Drupal\redis\Cache\CacheBackendFactory
+              arguments: ['@redis.factory']
+            redis.factory:
+              class: Drupal\redis\ClientFactory
+          EOF
           chmod 666 web/sites/default/settings.php
 
       - name: Install Drupal
